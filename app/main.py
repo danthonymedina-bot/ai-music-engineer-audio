@@ -1,5 +1,6 @@
 """AI Music Engineer - audio processing backend."""
 import json
+import subprocess
 import re
 import shutil
 from pathlib import Path
@@ -15,9 +16,11 @@ from .security import check_key, rate_limit
 from .dsp import separation
 from .dsp.denoise import PRESETS, denoise
 from .dsp.mix import Track, mix
-from .dsp.pitch_tempo import pitch_tempo, rubberband_available
+from .dsp.pitch_tempo import pitch_tempo, rubberband_available, rubberband_cli_available, rubberband_file
 from .dsp.tone import tone
 
+import threading
+SEPARATION_LOCK = threading.Lock()
 app = FastAPI(title="AI Music Engineer Audio Engine", version="0.2.0")
 AUTH = [Depends(check_key)]
 SEP = AUTH + [Depends(rate_limit("separate"))]
@@ -67,22 +70,33 @@ def _run(jid: str, fn):
 
 @app.get("/health")
 def health():
-    return {"ok": True, "demucs": separation.demucs_available(), "rubberband": rubberband_available()}
+    try:
+        b = separation.resolve_backend("auto")
+    except RuntimeError:
+        b = None
+    return {"ok": True, "separation_backend": b, "quality": separation.QUALITY.get(b),
+            "demucs": separation.demucs_available(), "onnx": separation.onnx_available(),
+            "rubberband": rubberband_available()}
 
 
 @app.post("/separate", status_code=202, dependencies=SEP)
 def separate_ep(bg: BackgroundTasks, request: Request, file: UploadFile = File(...), model: str = Form(DEFAULT_MODEL)):
-    if model not in separation.DEMUCS_MODELS:
+    if model not in separation.MODELS:
         raise HTTPException(422, f"unknown model {model}")
-    jid = jobs.create("separate", {"model": model})
+    try:
+        backend = separation.resolve_backend(model)
+    except RuntimeError as e:
+        raise HTTPException(503, str(e))
+    jid = jobs.create("separate", {"model": model, "backend": backend, "quality": separation.QUALITY[backend]})
     d = jobs.job_dir(jid)
     src = _save_upload(file, d)
 
     def work():
-        stems = separation.separate(src, d / "stems", model)
+        with SEPARATION_LOCK:  # one separation at a time: keeps peak RAM within the 512 MB free tier
+            stems = separation.separate(src, d / "stems", model)
         if not stems:
             raise RuntimeError("separation produced no stems")
-        return stems, {"model": model}
+        return stems, {"model": model, "backend": backend, "quality": separation.QUALITY[backend]}
     bg.add_task(_run, jid, work)
     return {"job_id": jid, "status": "queued", "status_url": f"{str(request.base_url).rstrip('/')}/jobs/{jid}"}
 
@@ -130,6 +144,24 @@ def pitch_tempo_ep(request: Request, file: UploadFile = File(...), semitones: fl
                    tempo: float = Form(1.0), engine: str = Form("auto")):
     if not -24 <= semitones <= 24 or not 0.25 <= tempo <= 4:
         raise HTTPException(422, "semitones in [-24,24], tempo in [0.25,4]")
+    if engine in ("auto", "rubberband") and rubberband_cli_available():
+        # file-to-file through the CLI: constant memory, best quality
+        jid = jobs.create("pitch-tempo", dict(semitones=semitones, tempo=tempo))
+        d = jobs.job_dir(jid)
+        src = _save_upload(file, d)
+
+        def work():
+            wav = d / "input_decoded.wav"
+            subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(src), str(wav)], check=True)
+            out = d / "output.wav"
+            rubberband_file(str(wav), str(out), semitones, tempo)
+            wav.unlink(missing_ok=True)
+            return {"output": out}, {"engine": "rubberband-cli"}
+        _run(jid, work)
+        j = jobs.get(jid)
+        if j["status"] == "error":
+            raise HTTPException(422, j["error"])
+        return _job_view(j, request)
     return _sync_job("pitch-tempo", dict(semitones=semitones, tempo=tempo), file, request,
                      lambda x, sr: (lambda r: (r[0], {"engine": r[1]}))(pitch_tempo(x, sr, semitones, tempo, engine)))
 

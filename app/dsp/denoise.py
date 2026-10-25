@@ -30,8 +30,26 @@ def denoise(x, sr, preset="hiss", prop_decrease=None):
         kw["y_noise"] = quietest_window(y, sr)
     else:
         kw.update(time_constant_s=2.0, thresh_n_mult_nonstationary=1.0)
-    y = nr.reduce_noise(y=y, **kw)
-    return np.asarray(y, dtype=np.float32)
+    kw["chunk_size"] = 131072  # bounds noisereduce's internal float64 buffers
+    if y.ndim == 2:  # channel by channel to halve peak memory
+        noise = kw.pop("y_noise", None)
+        out = np.empty_like(y)
+        for c in range(y.shape[0]):
+            out[c] = _chunked(nr, y[c], None if noise is None else noise[c], sr, kw)
+        return out
+    return _chunked(nr, y, kw.pop("y_noise", None), sr, kw)
+
+
+def _chunked(nr, y, noise, sr, kw, chunk_s=30.0, pad_s=2.0):
+    """Denoise in 30 s segments (+2 s context each side) so memory doesn't grow with song length."""
+    n, chunk, pad = len(y), int(chunk_s * sr), int(pad_s * sr)
+    out = np.empty(n, np.float32)
+    for start in range(0, n, chunk):
+        a, b = max(0, start - pad), min(n, start + chunk + pad)
+        seg = nr.reduce_noise(y=y[a:b], y_noise=noise, **kw)
+        lo = start - a
+        out[start:start + min(chunk, n - start)] = seg[lo:lo + min(chunk, n - start)]
+    return out
 
 
 def quietest_window(x, sr, win_s=0.5):

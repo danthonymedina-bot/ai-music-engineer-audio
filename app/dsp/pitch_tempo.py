@@ -3,6 +3,17 @@ import shutil
 import numpy as np
 
 
+def rubberband_cli_available() -> bool:
+    return shutil.which("rubberband") is not None
+
+
+def rubberband_file(src: str, dst: str, semitones=0.0, tempo=1.0):
+    """File-to-file via the rubberband CLI (streams; ~constant memory). tempo>1 = faster."""
+    import subprocess
+    subprocess.run(["rubberband", "-q", "-t", repr(1.0 / tempo), "-p", repr(float(semitones)), src, dst],
+                   check=True, capture_output=True)
+
+
 def rubberband_available() -> bool:
     if shutil.which("rubberband") is None:
         return False

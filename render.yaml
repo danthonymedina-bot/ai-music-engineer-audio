@@ -1,26 +1,25 @@
-# Render blueprint — CPU-only beta. Free tier (512 MB RAM) is too small for Demucs; use standard (2 GB RAM, CPU).
+# Render blueprint — FREE tier beta (512 MB RAM, no persistent disk, spins down after ~15 min idle; cold start ~1 min).
+# Separation: Open-Unmix int8 ONNX (~310 MB peak measured on a 3-min song) with classical-DSP fallback. No Demucs/torch.
 services:
   - type: web
     name: ai-music-engineer-audio
     runtime: docker
     dockerfilePath: ./Dockerfile
-    plan: standard            # CPU-only, 2 GB RAM. Not "free": Demucs OOMs at 512 MB.
+    plan: free
     region: oregon
     healthCheckPath: /health
     envVars:
       - key: AUDIO_ENGINE_API_KEY
-        sync: false           # set the secret value in the Render dashboard; never committed
+        sync: false           # secret, set in dashboard / API; never committed
       - key: AUDIO_ENGINE_STORAGE
-        value: /data
+        value: /tmp/audio-engine   # ephemeral: results vanish on restart/spin-down
+      - key: SEPARATION_BACKEND
+        value: auto
       - key: AUDIO_ENGINE_MAX_UPLOAD_MB
-        value: "50"
+        value: "40"   # bytes are streamed to disk; RAM is bounded by duration (300 s), not file size
       - key: AUDIO_ENGINE_MAX_DURATION_S
-        value: "600"
+        value: "300"
       - key: RATE_SEPARATE_PER_HOUR
         value: "10"
       - key: RATE_PROCESS_PER_HOUR
         value: "60"
-    disk:
-      name: audio-data
-      mountPath: /data
-      sizeGB: 10

@@ -1,7 +1,7 @@
 """Export a lightweight separation model to ONNX (+ int8) for ONNX Runtime Mobile.
 
     pip install torch openunmix onnx onnxruntime    # demucs too for --model htdemucs
-    python export_onnx.py --model umxl --target vocals --out vocals.onnx
+    python export_onnx.py --model umxhq --target vocals --out vocals.onnx
     python -m onnxruntime.tools.convert_onnx_models_to_ort vocals.int8.onnx
 
 UNTESTED sketch: run on a dev machine; validate with onnxruntime vs torch outputs (see check()).
@@ -12,13 +12,14 @@ import numpy as np
 import torch
 
 
-def export_umx(name: str, target: str, out: str, frames: int = 256):
+def export_umx(name: str, target: str, out: str, frames: int = 512):
     from openunmix import utils
     sep = utils.load_separator(name, targets=[target], device="cpu", pretrained=True)
     net = sep.target_models[target].eval()  # OpenUnmix: input (nb_samples, nb_channels, nb_bins, nb_frames) magnitude
     dummy = torch.rand(1, 2, 2049, frames)
-    torch.onnx.export(net, dummy, out, input_names=["mag"], output_names=["est"], opset_version=17,
-                      dynamic_axes={"mag": {3: "frames"}, "est": {3: "frames"}})
+    # Static frame count: the traced LSTM reshape bakes in T, so dynamic axes don't actually work.
+    # Callers window + zero-pad to `frames` (see app/dsp/onnx_separation.py).
+    torch.onnx.export(net, dummy, out, input_names=["mag"], output_names=["est"], opset_version=17, dynamo=False)
     return dummy
 
 
@@ -48,7 +49,7 @@ def check(path: str, dummy: torch.Tensor):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--model", default="umxl", help="umxl | umxhq | htdemucs")
+    ap.add_argument("--model", default="umxhq", help="umxhq (MIT code) | umxl (weights CC BY-NC-SA!) | htdemucs")
     ap.add_argument("--target", default="vocals")
     ap.add_argument("--out", default="model.onnx")
     ap.add_argument("--no-quant", action="store_true")

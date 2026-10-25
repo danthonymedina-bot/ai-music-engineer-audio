@@ -6,6 +6,10 @@ import soundfile as sf
 
 
 def load(path: Path):
+    return _load(path)
+
+
+def _load(path: Path):
     """Returns ((channels, samples) float32, sr). Falls back to ffmpeg for mp3/m4a/aac/ogg-opus."""
     try:
         data, sr = sf.read(str(path), dtype="float32", always_2d=True)

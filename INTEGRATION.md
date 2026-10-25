@@ -4,6 +4,8 @@ For the Android (Jetpack Compose) team and the main bot. All endpoints are plain
 
 > **BASE_URL = `https://TODO-ai-music-engineer-audio.onrender.com/`** — **TODO:** replace with the real Render URL after deploy.
 
+> **Where the Android app reads this (ai-music-engineer):** `app/build.gradle.kts` → `BuildConfig.CLOUD_SEPARATION_URL` and `BuildConfig.CLOUD_API_KEY`, from `local.properties` keys `cloud.separation.url` / `cloud.api.key` (aliases `audioEngine.url` / `audioEngine.apiKey` also accepted) or env `CLOUD_SEPARATION_URL` / `CLOUD_API_KEY` in CI. Used by `separation/CloudSeparationEngine.kt` (sends `X-API-Key`, polls `/jobs/{id}`, downloads `urls[stem]`). Real values not set yet.
+
 ## Auth
 Every request except `GET /health` must send **`X-API-Key: <key>`** (401 otherwise). The key is set server-side as the Render env var `AUDIO_ENGINE_API_KEY` (`sync: false`, entered in the dashboard) and is shared out-of-band — never commit it.
 Bake it into the APK from the untracked `local.properties`:
@@ -25,8 +27,10 @@ android { buildFeatures { buildConfig = true }
 
 ## Limits
 - 10 `/separate` per hour and 60 processing calls (`/process/*` + `/mix`) per hour, per key + client IP → **429** with `Retry-After` (seconds). Show "try again in N min".
-- Upload ≤ **50 MB** and ≤ **10 min** of audio → **413**.
-- CPU beta: separation takes ~0.5–1.5× song length.
+- Upload ≤ **40 MB** and ≤ **5 min** of audio → **413**. (A 3-min WAV stem is ~31 MB; prefer sending FLAC/m4a when re-uploading stems.)
+- **Render free tier:** server sleeps after ~15 min idle → first call can take **30–60 s** (call `/health` on app start and show "Waking up the server…"). Use read timeouts ≥ 120 s.
+- Results are stored in `/tmp` and **disappear when the server sleeps/restarts** → download stems right after `status: done`; a later 404 means "re-run".
+- Separation quality: job `meta.quality` is `medium` (Open-Unmix ML model) or `low (classical DSP, not ML)` — show a "beta quality" label.
 
 ## Base URL
 Configure per build type, never hard-code:
@@ -42,8 +46,8 @@ Debug over plain HTTP needs `android:usesCleartextTraffic` / a network-security-
 ## Endpoints
 | Method | Path | Body (multipart/form-data) | Response |
 |---|---|---|---|
-| GET | `/health` | – | `{ok, demucs, rubberband}` capabilities (no key needed) |
-| POST | `/separate` | `file`, `model?` htdemucs (default) / htdemucs_ft / htdemucs_6s / mdx_extra | **202** `{job_id, status, status_url}` |
+| GET | `/health` | – | `{ok, separation_backend, quality, onnx, demucs, rubberband}` (no key needed) |
+| POST | `/separate` | `file`, `model?` auto (default) / umxhq / dsp | **202** `{job_id, status, status_url}` |
 | GET | `/jobs/{id}` | – | `Job` (below) |
 | GET | `/stems/{id}/{stem}` | – | `audio/wav` |
 | POST | `/process/pitch-tempo` | `file`, `semitones` [-24,24], `tempo` [0.25,4], `engine?` auto/rubberband/librosa | **200** `Job` (done) |
@@ -53,17 +57,17 @@ Debug over plain HTTP needs `android:usesCleartextTraffic` / a network-security-
 
 ```json
 // Job
-{"id":"9f…","kind":"separate","status":"done","params":{"model":"htdemucs"},
+{"id":"9f…","kind":"separate","status":"done","params":{"model":"auto","backend":"onnx","quality":"medium"},
  "error":null,"meta":{"model":"htdemucs"},
  "created_at":1761400000.1,"updated_at":1761400042.7,
  "urls":{"vocals":"https://…/stems/9f…/vocals","drums":"…","bass":"…","other":"…"}}
 ```
 Processing endpoints return `urls.output`. Download any URL with GET → 16-bit WAV at the input sample rate.
-Accepted uploads: wav, mp3, flac, m4a, aac, ogg, opus (≤ 50 MB, ≤ 10 min).
+Accepted uploads: wav, mp3, flac, m4a, aac, ogg, opus (≤ 40 MB, ≤ 5 min).
 
 ## Flow
 1. Upload with `/separate` → get `job_id`.
-2. Poll `/jobs/{id}` every 2 s (back off to 5 s after 30 s). Separation on CPU ≈ 0.5–1.5× track length; GPU ≈ 5–10 s per song.
+2. Poll `/jobs/{id}` every 2 s (back off to 5 s after 30 s). On the free tier a 3-min song takes roughly 1–3 min (plus cold start).
 3. On `done`, download `urls[stem]` to app cache; on `error`, show `error`.
 4. Per-stem edits: upload the stem WAV to `/process/*` (synchronous; keep the call off the main thread, timeout ≥ 120 s).
 5. Final bounce: `/mix` with all stems/takes.
@@ -77,7 +81,7 @@ Accepted uploads: wav, mp3, flac, m4a, aac, ogg, opus (≤ 50 MB, ≤ 10 min).
 | 503 | server has no API key configured | ops issue |
 | 404 | unknown job / stem | drop cached id |
 | 409 | stem requested before job `done` | keep polling |
-| 413 | upload > 50 MB or audio > 10 min | compress / trim |
+| 413 | upload > 40 MB or audio > 5 min | compress / trim |
 | 415 | unsupported extension or undecodable audio | convert to wav/m4a |
 | 422 | bad params, or DSP failed (`detail` has message) | show message |
 | 5xx | server error / restart (jobs in progress are lost on restart) | retry with backoff, re-submit |
@@ -127,7 +131,7 @@ fun File.asPart(name: String = "file") =
 fun String.text() = toRequestBody("text/plain".toMediaType())
 
 suspend fun separateAndWait(f: File): Job {
-  val id = api.separate(f.asPart(), "htdemucs".text()).jobId
+  val id = api.separate(f.asPart(), "auto".text()).jobId
   var delayMs = 2000L
   while (true) {
     val j = api.job(id)
@@ -144,4 +148,4 @@ Use a `WorkManager` `CoroutineWorker` for separation so it survives the app goin
 
 ## Notes for the main bot
 - Server is single-process; jobs are lost on restart; stems are kept on disk until cleaned (no TTL yet).
-- `/health` tells the app whether separation is available; if `demucs:false`, fall back to the on-device path (`ondevice/`).
+- `/health` reports `separation_backend`; if the server is unreachable, fall back to the on-device path (`ondevice/`).

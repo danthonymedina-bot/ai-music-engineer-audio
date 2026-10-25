@@ -28,14 +28,19 @@ def _biquad(kind: str, f0: float, sr: int, gain_db: float, q: float = 0.707) -> 
 def eq(x, sr, low_gain_db=0.0, mid_gain_db=0.0, high_gain_db=0.0,
        low_freq=120.0, mid_freq=1000.0, high_freq=6000.0, mid_q=1.0):
     """x: (samples,) or (channels, samples)."""
-    y = np.asarray(x, dtype=np.float64)
-    if low_gain_db:
-        y = sosfilt(_biquad("lowshelf", low_freq, sr, low_gain_db), y, axis=-1)
-    if mid_gain_db:
-        y = sosfilt(_biquad("peak", mid_freq, sr, mid_gain_db, mid_q), y, axis=-1)
-    if high_gain_db:
-        y = sosfilt(_biquad("highshelf", high_freq, sr, high_gain_db), y, axis=-1)
-    return y.astype(np.float32)
+    x = np.asarray(x, dtype=np.float32)
+    sos = [s for g, s in ((low_gain_db, lambda: _biquad("lowshelf", low_freq, sr, low_gain_db)),
+                          (mid_gain_db, lambda: _biquad("peak", mid_freq, sr, mid_gain_db, mid_q)),
+                          (high_gain_db, lambda: _biquad("highshelf", high_freq, sr, high_gain_db))) if g]
+    if not sos:
+        return x.copy()
+    sos = np.concatenate([f() for f in sos]).astype(np.float32)
+    if x.ndim == 1:
+        return sosfilt(sos, x).astype(np.float32)
+    out = np.empty_like(x)
+    for c in range(x.shape[0]):  # per channel, float32: bounded memory on 512 MB hosts
+        out[c] = sosfilt(sos, x[c])
+    return out
 
 
 def saturate(x, drive=0.0, mix=1.0):
@@ -43,9 +48,11 @@ def saturate(x, drive=0.0, mix=1.0):
     x = np.asarray(x, dtype=np.float32)
     if drive <= 0 or mix <= 0:
         return x
-    g = 10 ** (drive / 20)
-    wet = np.tanh(g * x) / np.tanh(g)  # full-scale stays full-scale
-    return ((1 - mix) * x + mix * wet).astype(np.float32)
+    g = np.float32(10 ** (drive / 20))
+    wet = np.tanh(g * x)
+    wet *= np.float32(mix / np.tanh(g))  # full-scale stays full-scale
+    wet += np.float32(1 - mix) * x
+    return wet
 
 
 def tone(x, sr, low=0.0, mid=0.0, high=0.0, drive=0.0, mix=0.0, **kw):
