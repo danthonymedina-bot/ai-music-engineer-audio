@@ -1,0 +1,2 @@
+# Heavy separation backend (pulls torch; Dockerfile installs CPU-only torch first). htdemucs weights ~80 MB, baked in at build.
+demucs>=4.0.1
