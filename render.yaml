@@ -6,7 +6,7 @@ services:
     runtime: docker
     dockerfilePath: ./Dockerfile
     plan: free
-    region: oregon
+    region: virginia      # matches the live service
     healthCheckPath: /health
     envVars:
       - key: AUDIO_ENGINE_API_KEY

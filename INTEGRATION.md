@@ -2,7 +2,7 @@
 
 For the Android (Jetpack Compose) team and the main bot. All endpoints are plain HTTP + multipart.
 
-> **BASE_URL = `https://TODO-ai-music-engineer-audio.onrender.com/`** — **TODO:** replace with the real Render URL after deploy.
+> **BASE_URL = `https://ai-music-engineer-audio.onrender.com/`** — Live on Render free tier (Virginia).
 
 > **Where the Android app reads this (ai-music-engineer):** `app/build.gradle.kts` → `BuildConfig.CLOUD_SEPARATION_URL` and `BuildConfig.CLOUD_API_KEY`, from `local.properties` keys `cloud.separation.url` / `cloud.api.key` (aliases `audioEngine.url` / `audioEngine.apiKey` also accepted) or env `CLOUD_SEPARATION_URL` / `CLOUD_API_KEY` in CI. Used by `separation/CloudSeparationEngine.kt` (sends `X-API-Key`, polls `/jobs/{id}`, downloads `urls[stem]`). Real values not set yet.
 
@@ -11,7 +11,7 @@ Every request except `GET /health` must send **`X-API-Key: <key>`** (401 otherwi
 Bake it into the APK from the untracked `local.properties`:
 ```properties
 # local.properties (gitignored)
-audioEngine.url=https://TODO-ai-music-engineer-audio.onrender.com/
+audioEngine.url=https://ai-music-engineer-audio.onrender.com/
 audioEngine.apiKey=<paste key>
 ```
 ```kotlin
@@ -38,7 +38,7 @@ Configure per build type, never hard-code:
 // app/build.gradle.kts
 buildTypes {
   debug   { buildConfigField("String", "AUDIO_ENGINE_URL", "\"http://10.0.2.2:8000/\"") } // emulator → host
-  release { buildConfigField("String", "AUDIO_ENGINE_URL", "\"${props.getProperty("audioEngine.url", "https://TODO-ai-music-engineer-audio.onrender.com/")}\"") } // TODO real URL
+  release { buildConfigField("String", "AUDIO_ENGINE_URL", "\"${props.getProperty("audioEngine.url", "https://ai-music-engineer-audio.onrender.com/")}\"") }
 }
 ```
 Debug over plain HTTP needs `android:usesCleartextTraffic` / a network-security-config for 10.0.2.2 only.
