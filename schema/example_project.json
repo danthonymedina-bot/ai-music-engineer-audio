@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "id": "song-42",
+  "sampleRate": 44100,
+  "snap": {"type": "beats", "value": 1, "bpm": 120},
+  "clips": [
+    {"id": "main", "name": "Song mix", "numSamples": 7938000, "channels": 2},
+    {"id": "vox", "name": "Vocals stem", "numSamples": 7938000, "channels": 2}
+  ],
+  "mainClipId": "main",
+  "mainGainDb": 0,
+  "mainMute": false,
+  "lanes": [
+    {
+      "id": "lane-1", "name": "Chorus double", "order": 0, "colorArgb": 4294940672,
+      "gainDb": -3, "pan": -0.2, "mute": false, "solo": false,
+      "items": [
+        {"id": "item-1", "sourceClipId": "vox",
+         "range": {"startSample": 2646000, "endSample": 3528000},
+         "laneStartSample": 4410000, "mode": "add", "gainDb": 0,
+         "fadeInMs": 10, "fadeOutMs": 250,
+         "crossfade": {"lengthMs": 75, "curve": "equal_power"}}
+      ],
+      "processorChain": [
+        {"id": "fx-1", "type": "delay", "enabled": true,
+         "params": {"syncToSnap": true, "beats": 0.75, "feedback": 0.35, "mix": 0.4},
+         "fadeInMs": 0, "fadeOutMs": 1500},
+        {"id": "fx-2", "type": "eq", "enabled": true,
+         "params": {"lowGainDb": -6, "highGainDb": 2}, "fadeInMs": 0, "fadeOutMs": 0}
+      ]
+    },
+    {
+      "id": "lane-2", "name": "Fix bar 17", "order": 1,
+      "gainDb": 0, "pan": 0, "mute": false, "solo": false,
+      "items": [
+        {"id": "item-2", "sourceClipId": "main",
+         "range": {"startSample": 1764000, "endSample": 1852200},
+         "laneStartSample": 3528000, "mode": "replace",
+         "crossfade": {"lengthMs": 75, "curve": "linear"}}
+      ],
+      "processorChain": []
+    }
+  ],
+  "selection": {"sourceClipId": "main", "range": {"startSample": 1764000, "endSample": 1852200}},
+  "masterLimiter": "soft_clip",
+  "softClipThresholdDb": -1.0
+}

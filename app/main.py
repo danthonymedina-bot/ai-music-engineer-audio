@@ -219,3 +219,126 @@ def mix_ep(request: Request, files: List[UploadFile] = File(...), tracks: str = 
         return {"output": out}, {"sr": sr0}
     _run(jid, work)
     return _job_view(jobs.get(jid), request)
+
+
+# ---------------------------------------------------------------- edit model render
+from fastapi.concurrency import run_in_threadpool  # noqa: E402
+from pydantic import ValidationError  # noqa: E402
+
+from .edit.engine import BLOCK, EditError, Renderer, RenderStats, decode_to_disk  # noqa: E402
+from .edit.model import Project  # noqa: E402
+from .edit.processors import ProcessorError  # noqa: E402
+
+EDIT_LIMITS = {"clips": 16, "lanes": 12, "items_per_lane": 256, "processors_per_lane": 8}
+EDIT_RENDER_SLOTS = threading.BoundedSemaphore(2)  # each render streams ~3 s blocks; 2 at once stays << 512 MB
+
+
+def _edit_render_sync(project: Project, uploads: dict, view: str, d: Path, write: bool = True,
+                      start: int = 0, count: Optional[int] = None):
+    with EDIT_RENDER_SLOTS:
+        sources = {}
+        for cid, f in uploads.items():
+            p = _save_upload(f, d, f"clip_{cid}")
+            sources[cid] = decode_to_disk(str(p), project.sampleRate, str(d))
+            p.unlink(missing_ok=True)
+        try:
+            r = Renderer(project, sources)
+            if r.length > (MAX_DURATION_S + 60) * r.sr:
+                raise HTTPException(413, f"timeline longer than {MAX_DURATION_S / 60:g} min + 60 s")
+            st = RenderStats()
+            out = d / "output.wav"
+            if write:
+                import soundfile as sf
+                with sf.SoundFile(str(out), "w", samplerate=r.sr, channels=2, subtype="PCM_16") as fh:
+                    for blk in r.iter_blocks(view, st):
+                        fh.write(blk.T)
+            else:  # levels only: meter [start, start+count) block by block, keep nothing
+                end = r.length if count is None else min(r.length, start + count)
+                for s0 in range(start, end, BLOCK):
+                    r.render_block(s0, min(BLOCK, end - s0), view, st)
+            return out, st.as_dict(r, view, start)
+        finally:
+            del sources
+            for f32 in d.glob("*.f32"):
+                f32.unlink(missing_ok=True)
+
+
+async def _edit_inputs(request: Request):
+    form = await request.form(max_files=EDIT_LIMITS["clips"] + 1)
+    raw = form.get("project")
+    if not isinstance(raw, str):
+        raise HTTPException(422, "form field 'project' (JSON) is required")
+    try:
+        project = Project.model_validate_json(raw)
+    except ValidationError as e:
+        raise HTTPException(422, json.loads(e.json(include_url=False, include_input=False)))
+    view = form.get("view") or "main_plus_lanes"
+    if view not in ("main", "main_plus_lanes"):
+        raise HTTPException(422, "view must be main|main_plus_lanes")
+    if len(project.clips) > EDIT_LIMITS["clips"] or len(project.lanes) > EDIT_LIMITS["lanes"] or any(
+            len(l.items) > EDIT_LIMITS["items_per_lane"] or len(l.processorChain) > EDIT_LIMITS["processors_per_lane"]
+            for l in project.lanes):
+        raise HTTPException(422, f"project exceeds limits {EDIT_LIMITS}")
+    uploads = {k[5:]: v for k, v in form.multi_items() if k.startswith("clip:") and hasattr(v, "filename")}
+    wanted = {c.id for c in project.clips}
+    if set(uploads) != wanted:
+        raise HTTPException(422, f"upload exactly one 'clip:<id>' part per clip; missing "
+                                 f"{sorted(wanted - set(uploads))}, unexpected {sorted(set(uploads) - wanted)}")
+    return form, project, view, uploads
+
+
+@app.post("/edit/levels", dependencies=PROC)
+async def edit_levels(request: Request):
+    """Same multipart inputs as /edit/render (plus optional startSample / numSamples). Returns only the meters:
+    per-lane, main and master peak dBFS, RMS dBFS and headroom. Nothing is stored."""
+    form, project, view, uploads = await _edit_inputs(request)
+    try:
+        start = int(form.get("startSample") or 0)
+        count = int(form["numSamples"]) if form.get("numSamples") else None
+    except ValueError:
+        raise HTTPException(422, "startSample/numSamples must be integers")
+    if start < 0 or (count is not None and count <= 0):
+        raise HTTPException(422, "startSample must be >= 0 and numSamples > 0")
+    import tempfile
+    jobs.STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=str(jobs.STORAGE_DIR)) as td:
+        try:
+            _, meta = await run_in_threadpool(_edit_render_sync, project, uploads, view, Path(td), False, start, count)
+        except (EditError, ProcessorError) as e:
+            raise HTTPException(422, str(e))
+    return meta
+
+
+@app.post("/edit/render", dependencies=PROC)
+async def edit_render(request: Request):
+    """multipart/form-data:
+      project  = Project JSON (schema/edit_model.json)
+      view     = main | main_plus_lanes (default)
+      response = wav (default: audio/wav body + X-Edit-* headers) | json (job record + url + metadata)
+      clip:<clipId> = one audio file per Project.clips entry
+    """
+    form, project, view, uploads = await _edit_inputs(request)
+    mode = form.get("response") or "wav"
+    if mode not in ("wav", "json"):
+        raise HTTPException(422, "response must be wav|json")
+    jid = jobs.create("edit_render", {"projectId": project.id, "view": view})
+    d = jobs.job_dir(jid)
+    try:
+        out, meta = await run_in_threadpool(_edit_render_sync, project, uploads, view, d)
+    except (EditError, ProcessorError) as e:
+        jobs.update(jid, status="error", error=str(e))
+        raise HTTPException(422, str(e))
+    jobs.update(jid, status="done", outputs={"output": str(out)}, meta=meta)
+    if mode == "json":
+        return _job_view(jobs.get(jid), request)
+    m = meta["master"]
+    headers = {
+        "X-Edit-Job-Id": jid,
+        "X-Edit-Length-Samples": str(meta["lengthSamples"]),
+        "X-Edit-Sample-Rate": str(meta["sampleRate"]),
+        "X-Edit-Master-Peak-Dbfs": str(m["peakDbfs"]),
+        "X-Edit-Master-Headroom-Db": str(m["headroomDb"]),
+        "X-Edit-Master-Rms-Dbfs": str(m["rmsDbfs"]),
+        "X-Edit-Meta": json.dumps(meta, separators=(",", ":")),
+    }
+    return FileResponse(out, media_type="audio/wav", filename=f"{project.id}-{view}.wav", headers=headers)

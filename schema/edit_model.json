@@ -1,0 +1,570 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/danthonymedina-bot/ai-music-engineer-audio/schema/edit_model.json",
+  "title": "AI Music Engineer edit model",
+  "description": "Project JSON sent to POST /edit/render and persisted by the Android app. All positions are integer samples at Project.sampleRate; ranges are half-open.",
+  "x-schemaVersion": 1,
+  "$ref": "#/$defs/Project",
+  "$defs": {
+    "Crossfade": {
+      "additionalProperties": false,
+      "description": "Centred on each item boundary. equal_power: gain_out = cos(w*pi/2), gain_in = sin(w*pi/2) (constant power for\nuncorrelated audio). linear: gain_out = 1-w, gain_in = w (constant amplitude, best for identical/correlated audio).",
+      "properties": {
+        "lengthMs": {
+          "default": 75.0,
+          "maximum": 100.0,
+          "minimum": 50.0,
+          "title": "Lengthms",
+          "type": "number"
+        },
+        "curve": {
+          "default": "equal_power",
+          "enum": [
+            "equal_power",
+            "linear"
+          ],
+          "title": "Curve",
+          "type": "string"
+        }
+      },
+      "title": "Crossfade",
+      "type": "object"
+    },
+    "EditHistory": {
+      "additionalProperties": false,
+      "description": "Immutable undo state: snapshots[i] is the project after ops[i-1]; cursor indexes the current snapshot.",
+      "properties": {
+        "snapshots": {
+          "items": {
+            "$ref": "#/$defs/Project"
+          },
+          "title": "Snapshots",
+          "type": "array"
+        },
+        "ops": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/EditOp"
+          },
+          "title": "Ops",
+          "type": "array"
+        },
+        "cursor": {
+          "default": 0,
+          "title": "Cursor",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "snapshots"
+      ],
+      "title": "EditHistory",
+      "type": "object"
+    },
+    "EditOp": {
+      "additionalProperties": false,
+      "description": "One undoable edit. before/after hold the JSON of each target (null = did not exist / was deleted).",
+      "properties": {
+        "opId": {
+          "title": "Opid",
+          "type": "string"
+        },
+        "type": {
+          "description": "e.g. addItem, moveItem, deleteItem, setLane, addProcessor, setProcessor, setSnap ...",
+          "title": "Type",
+          "type": "string"
+        },
+        "targetIds": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Targetids",
+          "type": "array"
+        },
+        "before": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Before",
+          "type": "object"
+        },
+        "after": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "After",
+          "type": "object"
+        }
+      },
+      "required": [
+        "opId",
+        "type",
+        "targetIds"
+      ],
+      "title": "EditOp",
+      "type": "object"
+    },
+    "Lane": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "default": "",
+          "title": "Name",
+          "type": "string"
+        },
+        "order": {
+          "default": 0,
+          "title": "Order",
+          "type": "integer"
+        },
+        "colorArgb": {
+          "anyOf": [
+            {
+              "maximum": 4294967295,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Colorargb"
+        },
+        "gainDb": {
+          "default": 0.0,
+          "description": "Lane BUS gain: applied once to the lane sum (after items, crossfades and the processor chain), never per item.",
+          "maximum": 12.0,
+          "minimum": -60.0,
+          "title": "Gaindb",
+          "type": "number"
+        },
+        "pan": {
+          "default": 0.0,
+          "description": "Lane bus pan, constant power: L=cos((pan+1)pi/4)*sqrt2, R=sin((pan+1)pi/4)*sqrt2 (unity at centre).",
+          "maximum": 1.0,
+          "minimum": -1.0,
+          "title": "Pan",
+          "type": "number"
+        },
+        "mute": {
+          "default": false,
+          "description": "Mute wins over solo.",
+          "title": "Mute",
+          "type": "boolean"
+        },
+        "solo": {
+          "default": false,
+          "description": "If any lane is soloed only soloed, unmuted lanes play. The main clip is not affected by solo.",
+          "title": "Solo",
+          "type": "boolean"
+        },
+        "items": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/LaneItem"
+          },
+          "title": "Items",
+          "type": "array"
+        },
+        "processorChain": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/Processor"
+          },
+          "title": "Processorchain",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "Lane",
+      "type": "object"
+    },
+    "LaneItem": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "sourceClipId": {
+          "title": "Sourceclipid",
+          "type": "string"
+        },
+        "range": {
+          "$ref": "#/$defs/Range"
+        },
+        "laneStartSample": {
+          "description": "Timeline position of range.startSample.",
+          "minimum": 0,
+          "title": "Lanestartsample",
+          "type": "integer"
+        },
+        "mode": {
+          "default": "add",
+          "enum": [
+            "add",
+            "replace"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "gainDb": {
+          "default": 0.0,
+          "description": "Per-item (clip) gain, pre-bus.",
+          "maximum": 12.0,
+          "minimum": -60.0,
+          "title": "Gaindb",
+          "type": "number"
+        },
+        "fadeInMs": {
+          "default": 0.0,
+          "maximum": 60000.0,
+          "minimum": 0.0,
+          "title": "Fadeinms",
+          "type": "number"
+        },
+        "fadeOutMs": {
+          "default": 0.0,
+          "maximum": 60000.0,
+          "minimum": 0.0,
+          "title": "Fadeoutms",
+          "type": "number"
+        },
+        "crossfade": {
+          "$ref": "#/$defs/Crossfade",
+          "default": {
+            "lengthMs": 75.0,
+            "curve": "equal_power"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "sourceClipId",
+        "range",
+        "laneStartSample"
+      ],
+      "title": "LaneItem",
+      "type": "object"
+    },
+    "Processor": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "description": "Registry key, e.g. 'delay', 'eq'.",
+          "maxLength": 32,
+          "minLength": 1,
+          "title": "Type",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "params": {
+          "additionalProperties": true,
+          "title": "Params",
+          "type": "object"
+        },
+        "fadeInMs": {
+          "default": 0.0,
+          "maximum": 60000.0,
+          "minimum": 0.0,
+          "title": "Fadeinms",
+          "type": "number"
+        },
+        "fadeOutMs": {
+          "default": 0.0,
+          "maximum": 60000.0,
+          "minimum": 0.0,
+          "title": "Fadeoutms",
+          "type": "number"
+        }
+      },
+      "required": [
+        "id",
+        "type"
+      ],
+      "title": "Processor",
+      "type": "object"
+    },
+    "Project": {
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "const": 1,
+          "default": 1,
+          "title": "Version",
+          "type": "integer"
+        },
+        "id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "sampleRate": {
+          "default": 44100,
+          "maximum": 192000,
+          "minimum": 8000,
+          "title": "Samplerate",
+          "type": "integer"
+        },
+        "snap": {
+          "$ref": "#/$defs/Snap",
+          "default": {
+            "type": "seconds",
+            "value": 0.1,
+            "bpm": null
+          }
+        },
+        "clips": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/SourceClip"
+          },
+          "title": "Clips",
+          "type": "array"
+        },
+        "mainClipId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Source clip played from timeline sample 0 (the 'main' view).",
+          "title": "Mainclipid"
+        },
+        "mainGainDb": {
+          "default": 0.0,
+          "maximum": 12.0,
+          "minimum": -60.0,
+          "title": "Maingaindb",
+          "type": "number"
+        },
+        "mainMute": {
+          "default": false,
+          "title": "Mainmute",
+          "type": "boolean"
+        },
+        "lanes": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/Lane"
+          },
+          "title": "Lanes",
+          "type": "array"
+        },
+        "selection": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Selection"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "masterLimiter": {
+          "default": "soft_clip",
+          "description": "soft_clip: static soft knee above the threshold (block-local). gain_compensation: one global gain so the loudest master sample lands at the threshold (needs a pre-scan), then soft_clip as a safety.",
+          "enum": [
+            "soft_clip",
+            "gain_compensation"
+          ],
+          "title": "Masterlimiter",
+          "type": "string"
+        },
+        "softClipThresholdDb": {
+          "default": -1.0,
+          "description": "Master is bit-transparent below this level; above it a tanh knee approaches the -0.1 dBFS ceiling, so the output never reaches 0 dBFS.",
+          "maximum": -0.5,
+          "minimum": -12.0,
+          "title": "Softclipthresholddb",
+          "type": "number"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "Project",
+      "type": "object"
+    },
+    "Range": {
+      "additionalProperties": false,
+      "description": "A window into a source clip. White marker = startSample, orange marker = endSample (exclusive).",
+      "properties": {
+        "startSample": {
+          "minimum": 0,
+          "title": "Startsample",
+          "type": "integer"
+        },
+        "endSample": {
+          "minimum": 0,
+          "title": "Endsample",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "startSample",
+        "endSample"
+      ],
+      "title": "Range",
+      "type": "object"
+    },
+    "Selection": {
+      "additionalProperties": false,
+      "description": "UI-only state. Ignored by the renderer.",
+      "properties": {
+        "sourceClipId": {
+          "title": "Sourceclipid",
+          "type": "string"
+        },
+        "range": {
+          "$ref": "#/$defs/Range"
+        }
+      },
+      "required": [
+        "sourceClipId",
+        "range"
+      ],
+      "title": "Selection",
+      "type": "object"
+    },
+    "Snap": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "default": "seconds",
+          "enum": [
+            "seconds",
+            "beats"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "value": {
+          "default": 0.1,
+          "description": "Grid size: seconds (type=seconds) or beats (type=beats).",
+          "exclusiveMinimum": 0,
+          "title": "Value",
+          "type": "number"
+        },
+        "bpm": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 400,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Required when type=beats.",
+          "title": "Bpm"
+        }
+      },
+      "title": "Snap",
+      "type": "object"
+    },
+    "SourceClip": {
+      "additionalProperties": false,
+      "description": "An immutable audio buffer uploaded with the render request (multipart part name == id).",
+      "properties": {
+        "id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_.\\-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "numSamples": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Informational; the decoded file is authoritative.",
+          "title": "Numsamples"
+        },
+        "channels": {
+          "anyOf": [
+            {
+              "maximum": 2,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Channels"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "SourceClip",
+      "type": "object"
+    }
+  }
+}

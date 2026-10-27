@@ -17,6 +17,8 @@ app/dsp/onnx_separation.py  Open-Unmix umxhq int8 ONNX, chunked (default on free
 app/dsp/dsp_separation.py   classical HPSS + centre/side separation (LOWER QUALITY fallback, scipy only)
 models/umxhq/          4 × ~9 MB int8 ONNX models (see its README for provenance/license)
 app/security.py        X-API-Key auth + in-memory per-key/IP rate limiter
+app/edit/              edit model (Pydantic) + sample-accurate block render engine + processor registry + undo history
+schema/                JSON Schema, EditModel.kt, kotlin-dsp reference + test vectors, README/MIGRATION for Android
 tests/                 pytest, synthetic signals; separation is mocked
 ```
 All DSP functions are pure: `(np.ndarray[(C,)N], sr, params) -> np.ndarray`.
@@ -60,6 +62,10 @@ curl -H "$H" -F file=@take.m4a -F preset=wind $B/process/denoise
 # mix
 curl -H "$H" -F files=@vox.wav -F files=@gtr.wav \
   -F 'tracks=[{"gain_db":0,"pan":0},{"gain_db":-4,"pan":-0.6,"offset_ms":120}]' -F ceiling_db=-1 $B/mix
+# edit model render (WAV + X-Edit-* headers) / levels only (JSON meters); see schema/README.md
+curl -H "$H" -F "project=<schema/example_project.json" -F view=main_plus_lanes \
+  -F clip:main=@song.flac -F clip:vox=@vox.flac -o edit.wav -D - $B/edit/render
+curl -H "$H" -F "project=<schema/example_project.json" -F clip:main=@song.flac -F clip:vox=@vox.flac $B/edit/levels
 ```
 Model values: `auto` (default → backend from `SEPARATION_BACKEND`), `umxhq` (ONNX), `dsp` (classical), and — only if Demucs is installed (paid plans) — `htdemucs`, `htdemucs_ft`, `htdemucs_6s`, `mdx_extra`.
 Job `meta` / `params` report `backend` and `quality` (`medium` = Open-Unmix, `low (classical DSP, not ML)`, `high` = Demucs).
