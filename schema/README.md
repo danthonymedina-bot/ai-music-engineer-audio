@@ -1,6 +1,6 @@
 # Edit model: source of truth (for the Android UI Bot)
 
-The edit model describes a non-destructive arrangement: a **main** clip plus up to 12 **lanes** of items cut from
+The edit model describes a non-destructive arrangement: a **main** clip plus up to 32 **lanes** (server env `AUDIO_ENGINE_MAX_LANES`, default 32) of items cut from
 source clips. Each lane has its own processor chain and a gain/pan bus. The backend renders it with
 sample-accurate math, and the same math is ported to Kotlin in `kotlin-dsp/` for on-device playback.
 
@@ -90,7 +90,7 @@ Both endpoints need the `X-API-Key` header and use the `process` rate limit. Req
 | `response` (`/edit/render` only) | `wav` (default) \| `json` |
 | `startSample`, `numSamples` (`/edit/levels` only) | Optional metering window |
 
-Limits: 16 clips, 12 lanes, 256 items per lane, 8 processors per lane, and timeline ≤ the server's max duration
+Limits: 16 clips, `AUDIO_ENGINE_MAX_LANES` lanes (default 32), 256 items per lane, 8 processors per lane, and timeline ≤ the server's max duration
 + 60 s. Each upload is capped at 40 MB, so send FLAC/MP3 for long sources.
 
 - `POST /edit/render` returns a 16-bit stereo WAV at `sampleRate` with these headers: `X-Edit-Length-Samples`,
@@ -125,7 +125,7 @@ The Android project was read but not modified.
 | `ClipMath.AUTO_FADE` 4 ms linear | `crossfade {75 ms, equal_power}` | Centred crossfade with handles replaces the 4 ms auto-fade. |
 | (none: add only) | `mode add\|replace` | `replace` is new. |
 | `Clip.fx: FxSettings` (per clip) | `Lane.processorChain` | FX are per lane now; see the open questions. |
-| `Arrangement.lanes: Int` (≤12) | `lanes: List<Lane>` (≤12) | |
+| `Arrangement.lanes: Int` (≤12 on the phone today) | `lanes: List<Lane>` (≤32 by default, `AUDIO_ENGINE_MAX_LANES`) | The phone can raise its own cap to 32. |
 | `muteMain` | `mainMute` | |
 | `mainSource "mix"/"master"` | `mainClipId` | Upload whichever file is the main clip. |
 | snap (bpm beats, else 0.1 s grid) | `Snap{type, value, bpm}` | Snap rounding: use `rint` to match the server. |

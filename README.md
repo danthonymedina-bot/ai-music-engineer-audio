@@ -42,7 +42,7 @@ Local: `export AUDIO_ENGINE_API_KEY=$(cat .secrets/api_key.txt)` (file is gitign
 - Every endpoint except `/health` (and `/docs`) requires header **`X-API-Key: <key>`** → otherwise **401**. If the server has no key configured → **503**.
 - The beta key lives in `.secrets/api_key.txt` (never committed). On Render it is the env var `AUDIO_ENGINE_API_KEY` (`sync: false` in `render.yaml`, so you paste it in the dashboard).
 - The Android app ships the key via `local.properties` → `BuildConfig.AUDIO_ENGINE_API_KEY` (see INTEGRATION.md). **It is extractable from the APK** — acceptable for a closed beta; before public launch move to per-user tokens (e.g. Firebase ID token verified server-side) and rotate this key.
-- Rate limits (in-memory, per key+client IP, sliding 1 h): **10 `/separate`**, **60 process calls** (`/process/*` + `/mix`) → **429** with `Retry-After`. Uploads max **40 MB** and **5 min** audio → **413**. Undecodable → **415**.
+- Rate limits (in-memory, per key+client IP, sliding 1 h): **10 `/separate`**, **60 process calls** (`/process/*` + `/mix`) → **429** with `Retry-After`. Edit projects: max **32 lanes** (`AUDIO_ENGINE_MAX_LANES`), 16 clips, 256 items/lane, 8 processors/lane. Uploads max **40 MB** and **5 min** audio → **413**. Undecodable → **415**.
 - Limits reset on restart and aren't shared across instances — fine for one beta instance.
 
 ## API examples

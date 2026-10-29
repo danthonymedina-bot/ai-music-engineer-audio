@@ -289,7 +289,9 @@ from .edit.engine import BLOCK, EditError, Renderer, RenderStats, decode_to_disk
 from .edit.model import Project  # noqa: E402
 from .edit.processors import ProcessorError  # noqa: E402
 
-EDIT_LIMITS = {"clips": 16, "lanes": 12, "items_per_lane": 256, "processors_per_lane": 8}
+from .config import MAX_LANES  # noqa: E402
+
+EDIT_LIMITS = {"clips": 16, "lanes": MAX_LANES, "items_per_lane": 256, "processors_per_lane": 8}
 EDIT_RENDER_SLOTS = threading.BoundedSemaphore(2)  # each render streams ~3 s blocks; 2 at once stays << 512 MB
 
 

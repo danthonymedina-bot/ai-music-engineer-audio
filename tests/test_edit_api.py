@@ -107,3 +107,69 @@ def test_edit_levels_endpoint():
     assert part["measuredSamples"] == 22050
     assert part["master"]["rmsDbfs"] == pytest.approx(20 * np.log10(np.sqrt(np.mean(seg ** 2))), abs=0.01)
     assert anon.post("/edit/levels", data={"project": json.dumps(PROJECT)}).status_code == 401
+
+
+def test_max_lanes_env_default_and_override():
+    import subprocess, sys, os
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    code = "from app import config; print(config.MAX_LANES)"
+    env = {k: v for k, v in os.environ.items() if k != "AUDIO_ENGINE_MAX_LANES"}
+    assert subprocess.run([sys.executable, "-c", code], cwd=root, env=env, capture_output=True, text=True).stdout.strip() == "32"
+    env["AUDIO_ENGINE_MAX_LANES"] = "5"
+    assert subprocess.run([sys.executable, "-c", code], cwd=root, env=env, capture_output=True, text=True).stdout.strip() == "5"
+    assert main.EDIT_LIMITS["lanes"] == int(os.environ.get("AUDIO_ENGINE_MAX_LANES", "32"))
+
+
+def test_lane_limit_enforced(monkeypatch):
+    monkeypatch.setitem(main.EDIT_LIMITS, "lanes", 1)
+    r = client.post("/edit/levels", data={"project": json.dumps(PROJECT)}, files=files(main=A, take2=B))
+    assert r.status_code == 422 and "limits" in r.text
+
+
+def test_32_lane_project_renders_within_memory(tmp_path):
+    """32 lanes (each: an item + delay + compressor + saturation) over 60 s FLAC sources, through the real
+    /edit/render endpoint in a fresh interpreter. Peak RSS growth must stay far below the 512 MB instance."""
+    import subprocess, sys, textwrap
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    code = textwrap.dedent(f"""
+        import io, json, resource, time
+        import numpy as np, soundfile as sf
+        from fastapi.testclient import TestClient
+        from app import main
+        sr, n = 44100, 60 * 44100
+        rng = np.random.default_rng(1)
+        def flac(seed):
+            t = np.arange(n) / sr
+            x = 0.2 * np.sin(2 * np.pi * (110 + 40 * seed) * t) + 0.02 * rng.standard_normal(n)
+            b = io.BytesIO(); sf.write(b, np.stack([x, x]).T, sr, format="FLAC"); return b.getvalue()
+        srcs = {{"main": flac(0), "b": flac(1)}}
+        lanes = []
+        for i in range(32):
+            a = (i * 37 * sr // 32) % (50 * sr)
+            lanes.append({{"id": f"l{{i}}", "order": i, "gainDb": -18, "pan": (i % 5 - 2) / 2,
+                "items": [{{"id": f"i{{i}}", "sourceClipId": "b" if i % 2 else "main",
+                           "range": {{"startSample": a, "endSample": a + 8 * sr}}, "laneStartSample": a,
+                           "mode": "replace" if i % 3 == 0 else "add"}}],
+                "processorChain": [{{"id": f"d{{i}}", "type": "delay", "params": {{"timeMs": 180 + i, "feedback": 0.4}}}},
+                                   {{"id": f"c{{i}}", "type": "compressor", "params": {{"thresholdDb": -30}}}},
+                                   {{"id": f"s{{i}}", "type": "saturation_tube", "params": {{"driveDb": 6}}}}]}})
+        proj = {{"id": "big", "sampleRate": sr, "clips": [{{"id": "main"}}, {{"id": "b"}}], "mainClipId": "main", "lanes": lanes}}
+        c = TestClient(main.app, headers={{"X-API-Key": "test-key-123"}})
+        base = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        t = time.time()
+        r = c.post("/edit/render", data={{"project": json.dumps(proj), "response": "json"}},
+                   files=[(f"clip:{{k}}", (f"{{k}}.flac", v, "audio/flac")) for k, v in srcs.items()])
+        assert r.status_code == 200, r.text
+        meta = r.json()["meta"]
+        assert len(meta["lanes"]) == 32 and all(l["audible"] for l in meta["lanes"])
+        print(base // 1024, resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024, round(time.time() - t, 1))
+    """)
+    env = {**__import__("os").environ, "AUDIO_ENGINE_STORAGE": str(tmp_path), "AUDIO_ENGINE_API_KEY": "test-key-123"}
+    env.pop("AUDIO_ENGINE_MAX_LANES", None)
+    out = subprocess.run([sys.executable, "-c", code], cwd=root, env=env, capture_output=True, text=True, timeout=900)
+    assert out.returncode == 0, out.stderr[-3000:]
+    base, peak, secs = out.stdout.split()
+    print(f"32 lanes x 60 s: base {base} MB, peak {peak} MB, {secs} s")
+    assert int(peak) - int(base) < 250 and int(peak) < 450
