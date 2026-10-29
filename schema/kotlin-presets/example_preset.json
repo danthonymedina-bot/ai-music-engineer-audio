@@ -1,0 +1,77 @@
+{
+    "id": "0f8e4c1a-6b7d-4e2f-9a31-2c5d8b7e1f00",
+    "name": "Warm Vocal",
+    "createdAt": 1767225600000,
+    "updatedAt": 1767225600000,
+    "schemaVersion": 1,
+    "mode": "freestyle",
+    "params": {
+        "eq": {
+            "bands": [
+                {
+                    "enabled": true,
+                    "type": "peak",
+                    "freqHz": 100.0,
+                    "gainDb": 2.0,
+                    "q": 1.0
+                },
+                {
+                    "enabled": true,
+                    "type": "peak",
+                    "freqHz": 1000.0,
+                    "gainDb": -1.5,
+                    "q": 1.0
+                },
+                {
+                    "enabled": true,
+                    "type": "peak",
+                    "freqHz": 4000.0,
+                    "gainDb": 1.0,
+                    "q": 1.0
+                },
+                {
+                    "enabled": true,
+                    "type": "peak",
+                    "freqHz": 8000.0,
+                    "gainDb": 0.0,
+                    "q": 1.0
+                },
+                {
+                    "enabled": true,
+                    "type": "highshelf",
+                    "freqHz": 12000.0,
+                    "gainDb": 3.0,
+                    "q": 0.707
+                }
+            ]
+        },
+        "saturation": {
+            "enabled": true,
+            "type": "tape",
+            "driveDb": 8.0,
+            "mix": 0.5,
+            "asymmetry": 0.0
+        },
+        "width": {
+            "enabled": true,
+            "widthPct": 120.0,
+            "monoBelowHz": 120.0
+        },
+        "compressor": {
+            "enabled": true,
+            "thresholdDb": -20.0,
+            "ratio": 3.0,
+            "attackMs": 10.0,
+            "releaseMs": 150.0,
+            "kneeDb": 6.0,
+            "makeupDb": 0.0
+        }
+    },
+    "stems": {
+        "vocals": {
+            "compressor": {
+                "ratio": 5
+            }
+        }
+    }
+}

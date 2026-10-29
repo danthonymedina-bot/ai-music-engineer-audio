@@ -146,3 +146,20 @@ data class EditHistory(val snapshots: List<Project>, val ops: List<EditOp> = emp
     }
     companion object { fun of(p: Project) = EditHistory(listOf(p)) }
 }
+
+/** Processor.type values known to the server registry (app/edit/processors.py). Freestyle tone types take the same
+ *  params as the matching section of a freestyle ToneProfile (GET /tone/schema) and are clamped, never rejected. */
+object ProcessorTypes {
+    const val DELAY = "delay"
+    const val EQ = "eq"
+    const val TONE = "tone"                    // whole freestyle tone chain: params = ToneProfile.params
+    const val WIDTH = "width"
+    const val COMPRESSOR = "compressor"
+    const val TRANSIENT = "transient"
+    const val SATURATION = "saturation"        // params.type = tanh|tape|tube
+    const val SATURATION_TAPE = "saturation_tape"
+    const val SATURATION_TUBE = "saturation_tube"
+    const val LOW_CUT = "lowcut"
+    const val HIGH_CUT = "highcut"
+    val ALL = listOf(DELAY, EQ, TONE, WIDTH, COMPRESSOR, TRANSIENT, SATURATION, SATURATION_TAPE, SATURATION_TUBE, LOW_CUT, HIGH_CUT)
+}

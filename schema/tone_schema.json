@@ -1,0 +1,471 @@
+{
+  "version": 1,
+  "chainOrder": [
+    "denoise",
+    "pitchTempo",
+    "tone",
+    "laneBus"
+  ],
+  "toneOrder": [
+    "lowCut",
+    "highCut",
+    "eq",
+    "compressor",
+    "transient",
+    "saturation",
+    "width",
+    "output"
+  ],
+  "nyquistFraction": 0.45,
+  "maxStems": 16,
+  "stemNamePattern": "^[A-Za-z0-9_.-]{1,32}$",
+  "modes": {
+    "freestyle": "values clamped to min/max with warnings; unknown keys ignored with warnings",
+    "preset": "values must be within presetMin/presetMax; violations are 422 errors"
+  },
+  "sections": {
+    "denoise": {
+      "enabled": {
+        "kind": "bool",
+        "default": false,
+        "description": "spectral gating (noisereduce), runs first"
+      },
+      "preset": {
+        "kind": "enum",
+        "options": [
+          "hiss",
+          "air",
+          "wind"
+        ],
+        "default": "hiss",
+        "description": ""
+      },
+      "strength": {
+        "kind": "number",
+        "min": 0,
+        "max": 1,
+        "default": 1,
+        "unit": "",
+        "scale": "linear",
+        "description": "prop_decrease; preset default when omitted",
+        "step": 0.01,
+        "presetMin": 0,
+        "presetMax": 1
+      }
+    },
+    "pitchTempo": {
+      "enabled": {
+        "kind": "bool",
+        "default": false,
+        "description": "Rubber Band, runs after denoise"
+      },
+      "semitones": {
+        "kind": "number",
+        "min": -24,
+        "max": 24,
+        "default": 0,
+        "unit": "st",
+        "scale": "linear",
+        "description": "",
+        "step": 0.01,
+        "presetMin": -12,
+        "presetMax": 12
+      },
+      "tempo": {
+        "kind": "number",
+        "min": 0.25,
+        "max": 4,
+        "default": 1,
+        "unit": "x",
+        "scale": "log",
+        "description": "",
+        "step": 0.01,
+        "presetMin": 0.5,
+        "presetMax": 2
+      }
+    },
+    "lowCut": {
+      "enabled": {
+        "kind": "bool",
+        "default": false,
+        "description": ""
+      },
+      "freqHz": {
+        "kind": "number",
+        "min": 20,
+        "max": 2000,
+        "default": 80,
+        "unit": "Hz",
+        "scale": "log",
+        "description": "",
+        "presetMin": 20,
+        "presetMax": 500
+      },
+      "slopeDbOct": {
+        "kind": "number",
+        "min": 6,
+        "max": 48,
+        "default": 24,
+        "unit": "dB/oct",
+        "scale": "linear",
+        "description": "rounded to a multiple of 6 (Butterworth order 1..8)",
+        "step": 6,
+        "presetMin": 6,
+        "presetMax": 48
+      }
+    },
+    "highCut": {
+      "enabled": {
+        "kind": "bool",
+        "default": false,
+        "description": ""
+      },
+      "freqHz": {
+        "kind": "number",
+        "min": 1000,
+        "max": 20000,
+        "default": 16000,
+        "unit": "Hz",
+        "scale": "log",
+        "description": "",
+        "presetMin": 3000,
+        "presetMax": 20000
+      },
+      "slopeDbOct": {
+        "kind": "number",
+        "min": 6,
+        "max": 48,
+        "default": 24,
+        "unit": "dB/oct",
+        "scale": "linear",
+        "description": "",
+        "step": 6,
+        "presetMin": 6,
+        "presetMax": 48
+      }
+    },
+    "eq": {
+      "bands": {
+        "kind": "list",
+        "maxItems": 32,
+        "presetMaxItems": 6,
+        "item": {
+          "enabled": {
+            "kind": "bool",
+            "default": true,
+            "description": ""
+          },
+          "type": {
+            "kind": "enum",
+            "options": [
+              "peak",
+              "lowshelf",
+              "highshelf",
+              "notch"
+            ],
+            "default": "peak",
+            "description": ""
+          },
+          "freqHz": {
+            "kind": "number",
+            "min": 20,
+            "max": 20000,
+            "default": 1000,
+            "unit": "Hz",
+            "scale": "log",
+            "description": "clamped to 0.45*sampleRate at render",
+            "presetMin": 20,
+            "presetMax": 20000
+          },
+          "gainDb": {
+            "kind": "number",
+            "min": -30,
+            "max": 30,
+            "default": 0,
+            "unit": "dB",
+            "scale": "linear",
+            "description": "ignored by notch",
+            "step": 0.1,
+            "presetMin": -12,
+            "presetMax": 12
+          },
+          "q": {
+            "kind": "number",
+            "min": 0.1,
+            "max": 18,
+            "default": 0.707,
+            "unit": "",
+            "scale": "log",
+            "description": "",
+            "step": 0.01,
+            "presetMin": 0.3,
+            "presetMax": 4
+          }
+        },
+        "default": []
+      }
+    },
+    "compressor": {
+      "enabled": {
+        "kind": "bool",
+        "default": false,
+        "description": ""
+      },
+      "thresholdDb": {
+        "kind": "number",
+        "min": -60,
+        "max": 0,
+        "default": -18,
+        "unit": "dB",
+        "scale": "linear",
+        "description": "",
+        "step": 0.1,
+        "presetMin": -40,
+        "presetMax": 0
+      },
+      "ratio": {
+        "kind": "number",
+        "min": 1,
+        "max": 20,
+        "default": 4,
+        "unit": ":1",
+        "scale": "log",
+        "description": "",
+        "step": 0.1,
+        "presetMin": 1,
+        "presetMax": 8
+      },
+      "attackMs": {
+        "kind": "number",
+        "min": 0.1,
+        "max": 200,
+        "default": 10,
+        "unit": "ms",
+        "scale": "log",
+        "description": "",
+        "step": 0.1,
+        "presetMin": 1,
+        "presetMax": 100
+      },
+      "releaseMs": {
+        "kind": "number",
+        "min": 5,
+        "max": 2000,
+        "default": 150,
+        "unit": "ms",
+        "scale": "log",
+        "description": "",
+        "step": 1,
+        "presetMin": 20,
+        "presetMax": 1000
+      },
+      "kneeDb": {
+        "kind": "number",
+        "min": 0,
+        "max": 24,
+        "default": 6,
+        "unit": "dB",
+        "scale": "linear",
+        "description": "",
+        "step": 0.5,
+        "presetMin": 0,
+        "presetMax": 24
+      },
+      "makeupDb": {
+        "kind": "number",
+        "min": 0,
+        "max": 24,
+        "default": 0,
+        "unit": "dB",
+        "scale": "linear",
+        "description": "",
+        "step": 0.1,
+        "presetMin": 0,
+        "presetMax": 12
+      }
+    },
+    "transient": {
+      "enabled": {
+        "kind": "bool",
+        "default": false,
+        "description": ""
+      },
+      "attackDb": {
+        "kind": "number",
+        "min": -12,
+        "max": 12,
+        "default": 0,
+        "unit": "dB",
+        "scale": "linear",
+        "description": "",
+        "step": 0.1,
+        "presetMin": -6,
+        "presetMax": 6
+      },
+      "sustainDb": {
+        "kind": "number",
+        "min": -12,
+        "max": 12,
+        "default": 0,
+        "unit": "dB",
+        "scale": "linear",
+        "description": "",
+        "step": 0.1,
+        "presetMin": -6,
+        "presetMax": 6
+      }
+    },
+    "saturation": {
+      "enabled": {
+        "kind": "bool",
+        "default": false,
+        "description": ""
+      },
+      "type": {
+        "kind": "enum",
+        "options": [
+          "tanh",
+          "tape",
+          "tube"
+        ],
+        "default": "tanh",
+        "description": ""
+      },
+      "driveDb": {
+        "kind": "number",
+        "min": 0,
+        "max": 36,
+        "default": 0,
+        "unit": "dB",
+        "scale": "linear",
+        "description": "",
+        "step": 0.1,
+        "presetMin": 0,
+        "presetMax": 18
+      },
+      "mix": {
+        "kind": "number",
+        "min": 0,
+        "max": 1,
+        "default": 1,
+        "unit": "",
+        "scale": "linear",
+        "description": "",
+        "step": 0.01,
+        "presetMin": 0,
+        "presetMax": 1
+      },
+      "asymmetry": {
+        "kind": "number",
+        "min": 0,
+        "max": 1,
+        "default": 0,
+        "unit": "",
+        "scale": "linear",
+        "description": "even harmonics; tube adds a fixed 0.15 bias",
+        "step": 0.01,
+        "presetMin": 0,
+        "presetMax": 1
+      }
+    },
+    "width": {
+      "enabled": {
+        "kind": "bool",
+        "default": false,
+        "description": ""
+      },
+      "widthPct": {
+        "kind": "number",
+        "min": 0,
+        "max": 200,
+        "default": 100,
+        "unit": "%",
+        "scale": "linear",
+        "description": "0 = mono, 100 = unchanged, 200 = double side",
+        "step": 1,
+        "presetMin": 50,
+        "presetMax": 150
+      },
+      "monoBelowHz": {
+        "kind": "number",
+        "min": 0,
+        "max": 500,
+        "default": 120,
+        "unit": "Hz",
+        "scale": "linear",
+        "description": "below this the side signal is never widened (bass stays mono-safe); 0 = off",
+        "step": 1,
+        "presetMin": 0,
+        "presetMax": 500
+      }
+    },
+    "output": {
+      "gainDb": {
+        "kind": "number",
+        "min": -36,
+        "max": 12,
+        "default": 0,
+        "unit": "dB",
+        "scale": "linear",
+        "description": "",
+        "step": 0.1,
+        "presetMin": -24,
+        "presetMax": 6
+      }
+    }
+  },
+  "defaults": {
+    "denoise": {
+      "enabled": false,
+      "preset": "hiss",
+      "strength": 1
+    },
+    "pitchTempo": {
+      "enabled": false,
+      "semitones": 0,
+      "tempo": 1
+    },
+    "lowCut": {
+      "enabled": false,
+      "freqHz": 80,
+      "slopeDbOct": 24
+    },
+    "highCut": {
+      "enabled": false,
+      "freqHz": 16000,
+      "slopeDbOct": 24
+    },
+    "eq": {
+      "bands": []
+    },
+    "compressor": {
+      "enabled": false,
+      "thresholdDb": -18,
+      "ratio": 4,
+      "attackMs": 10,
+      "releaseMs": 150,
+      "kneeDb": 6,
+      "makeupDb": 0
+    },
+    "transient": {
+      "enabled": false,
+      "attackDb": 0,
+      "sustainDb": 0
+    },
+    "saturation": {
+      "enabled": false,
+      "type": "tanh",
+      "driveDb": 0,
+      "mix": 1,
+      "asymmetry": 0
+    },
+    "width": {
+      "enabled": false,
+      "widthPct": 100,
+      "monoBelowHz": 120
+    },
+    "output": {
+      "gainDb": 0
+    }
+  }
+}

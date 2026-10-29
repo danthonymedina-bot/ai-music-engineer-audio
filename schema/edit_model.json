@@ -284,7 +284,7 @@
           "type": "string"
         },
         "type": {
-          "description": "Registry key, e.g. 'delay', 'eq'.",
+          "description": "Registry key: delay, eq, tone (whole freestyle chain; params = freestyle params), width, compressor, transient, saturation, saturation_tape, saturation_tube, lowcut, highcut. Freestyle processors clamp params to GET /tone/schema ranges and ignore unknown keys.",
           "maxLength": 32,
           "minLength": 1,
           "title": "Type",

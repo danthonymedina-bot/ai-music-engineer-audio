@@ -17,6 +17,7 @@ app/dsp/onnx_separation.py  Open-Unmix umxhq int8 ONNX, chunked (default on free
 app/dsp/dsp_separation.py   classical HPSS + centre/side separation (LOWER QUALITY fallback, scipy only)
 models/umxhq/          4 × ~9 MB int8 ONNX models (see its README for provenance/license)
 app/security.py        X-API-Key auth + in-memory per-key/IP rate limiter
+app/tone/              freestyle/preset tone profiles (clamp+warn), stateful DSP stages, per-stem chain
 app/edit/              edit model (Pydantic) + sample-accurate block render engine + processor registry + undo history
 schema/                JSON Schema, EditModel.kt, kotlin-dsp reference + test vectors, README/MIGRATION for Android
 tests/                 pytest, synthetic signals; separation is mocked
@@ -62,6 +63,10 @@ curl -H "$H" -F file=@take.m4a -F preset=wind $B/process/denoise
 # mix
 curl -H "$H" -F files=@vox.wav -F files=@gtr.wav \
   -F 'tracks=[{"gain_db":0,"pan":0},{"gain_db":-4,"pan":-0.6,"offset_ms":120}]' -F ceiling_db=-1 $B/mix
+# freestyle tone (clamped, never rejected; see schema/FREESTYLE.md) + slider ranges
+curl -H "$H" -F file=@vox.wav -F 'profile={"mode":"freestyle","params":{"width":{"enabled":true,"widthPct":160},"saturation":{"enabled":true,"type":"tape","driveDb":12}}}' $B/process/tone
+curl -H "$H" $B/tone/schema
+curl -H "$H" -F file=@song.mp3 -F "toneProfile=<my_preset.json" $B/separate   # tone applied per stem
 # edit model render (WAV + X-Edit-* headers) / levels only (JSON meters); see schema/README.md
 curl -H "$H" -F "project=<schema/example_project.json" -F view=main_plus_lanes \
   -F clip:main=@song.flac -F clip:vox=@vox.flac -o edit.wav -D - $B/edit/render

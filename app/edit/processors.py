@@ -61,10 +61,11 @@ def _num(params: dict, key: str, default: float, lo: float, hi: float) -> float:
 class BaseProcessor:
     type_key: ClassVar[str] = ""
     PARAMS: ClassVar[tuple[str, ...]] = ()
+    LENIENT: ClassVar[bool] = False  # freestyle tone processors ignore unknown params instead of rejecting them
 
     def __init__(self, spec: Processor, sr: int, snap: Snap):
         unknown = set(spec.params) - set(self.PARAMS)
-        if unknown:
+        if unknown and not self.LENIENT:
             raise ProcessorError(f"{spec.type}: unknown params {sorted(unknown)}")
         self.spec, self.sr, self.snap = spec, sr, snap
         self.fade_in = int(round(spec.fadeInMs * sr / 1000))
@@ -203,3 +204,72 @@ class Eq(BaseProcessor):
             g = 10 ** (self.drive / 20)
             y = self.drive_mix * np.tanh(g * y) / np.tanh(g) + (1 - self.drive_mix) * y
         return y
+
+
+# ---------------------------------------------------------------- freestyle tone stages as lane processors
+# Lenient like freestyle: values are clamped to app/tone/profile.SPEC ranges (warnings kept on .warnings),
+# unknown params are ignored. Each runs with fresh state over `lookbehind()` history => block-exact (~1e-6).
+from ..tone import dsp as _tdsp  # noqa: E402
+from ..tone.profile import SPEC as _TSPEC, parse_profile as _parse_tone  # noqa: E402
+
+
+class _ToneStageProcessor(BaseProcessor):
+    SECTION: ClassVar[str] = ""
+    LENIENT = True
+    FORCE: ClassVar[dict] = {}
+
+    def parse(self, p):
+        prof = _parse_tone({"mode": "freestyle", "params": {self.SECTION: {"enabled": True, **p, **self.FORCE}}})
+        self.cfg = prof.params[self.SECTION]
+        self.warnings = list(prof.warnings)
+        self._probe = self._make()
+
+    def _make(self):
+        return _tdsp.build_stage(self.SECTION, self.cfg, self.sr, self.warnings)
+
+    def lookbehind(self):
+        return self._probe.lookbehind() if self._probe else 0
+
+    def tail(self):
+        return 0
+
+    def wet(self, x):
+        st = self._make()
+        return st.process(x) if st else x
+
+
+def _tone_proc(key, section, force=None):
+    cls = type(f"Tone_{key}", (_ToneStageProcessor,), {"SECTION": section, "FORCE": force or {},
+                                                         "PARAMS": tuple(_TSPEC[section])})
+    return register(key)(cls)
+
+
+_tone_proc("width", "width")
+_tone_proc("compressor", "compressor")
+_tone_proc("transient", "transient")
+_tone_proc("saturation", "saturation")
+_tone_proc("saturation_tape", "saturation", {"type": "tape"})
+_tone_proc("saturation_tube", "saturation", {"type": "tube"})
+_tone_proc("lowcut", "lowCut")
+_tone_proc("highcut", "highCut")
+
+
+@register("tone")
+class ToneFreestyle(BaseProcessor):
+    """A whole freestyle tone chain on a lane: params = freestyle `params` object (lowCut..output).
+    denoise/pitchTempo are not allowed per lane (they change timing/aren't block-exact) and are ignored."""
+    LENIENT = True
+
+    def parse(self, p):
+        prof = _parse_tone({"mode": "freestyle", "params": {k: v for k, v in p.items()
+                                                            if k not in ("denoise", "pitchTempo")}})
+        self.params = prof.params
+        self.warnings = list(prof.warnings)
+        self._probe = _tdsp.ToneChain(self.params, self.sr)
+        self.warnings += self._probe.warnings
+
+    def lookbehind(self):
+        return self._probe.lookbehind()
+
+    def wet(self, x):
+        return _tdsp.ToneChain(self.params, self.sr).process(x)

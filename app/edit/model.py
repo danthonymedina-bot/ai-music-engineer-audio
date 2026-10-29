@@ -83,7 +83,9 @@ class LaneItem(_M):
 
 class Processor(_M):
     id: str = Field(min_length=1, max_length=64)
-    type: str = Field(min_length=1, max_length=32, description="Registry key, e.g. 'delay', 'eq'.")
+    type: str = Field(min_length=1, max_length=32, description="Registry key: delay, eq, tone (whole freestyle chain; params = freestyle params), width, "
+                                  "compressor, transient, saturation, saturation_tape, saturation_tube, lowcut, highcut. "
+                                  "Freestyle processors clamp params to GET /tone/schema ranges and ignore unknown keys.")
     enabled: bool = True
     params: dict[str, Any] = Field(default_factory=dict)
     fadeInMs: float = Field(default=0.0, ge=0.0, le=60000.0)

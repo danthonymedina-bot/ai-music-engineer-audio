@@ -18,9 +18,12 @@ from .dsp.denoise import PRESETS, denoise
 from .dsp.mix import Track, mix
 from .dsp.pitch_tempo import pitch_tempo, rubberband_available, rubberband_cli_available, rubberband_file
 from .dsp.tone import tone
+from .tone.chain import run_chain
+from .tone.profile import ProfileError, parse_profile, schema_doc
 
 import threading
 SEPARATION_LOCK = threading.Lock()
+TONE_SLOTS = threading.BoundedSemaphore(2)  # chain = denoise (chunked) + streaming; 2 at once fits 512 MB
 app = FastAPI(title="AI Music Engineer Audio Engine", version="0.2.0")
 AUTH = [Depends(check_key)]
 SEP = AUTH + [Depends(rate_limit("separate"))]
@@ -80,7 +83,11 @@ def health():
 
 
 @app.post("/separate", status_code=202, dependencies=SEP)
-def separate_ep(bg: BackgroundTasks, request: Request, file: UploadFile = File(...), model: str = Form(DEFAULT_MODEL)):
+def separate_ep(bg: BackgroundTasks, request: Request, file: UploadFile = File(...), model: str = Form(DEFAULT_MODEL),
+                toneProfile: Optional[str] = Form(None)):
+    """Optional toneProfile (JSON, freestyle or preset, or a phone FreestylePreset export) is applied to every stem
+    after separation (stems.<name> overrides per stem). Processed stems keep their names; dry stems are <name>_raw."""
+    prof = _parse_profile_field(toneProfile)
     if model not in separation.MODELS:
         raise HTTPException(422, f"unknown model {model}")
     try:
@@ -92,11 +99,22 @@ def separate_ep(bg: BackgroundTasks, request: Request, file: UploadFile = File(.
     src = _save_upload(file, d)
 
     def work():
-        with SEPARATION_LOCK:  # one separation at a time: keeps peak RAM within the 512 MB free tier
+        with SEPARATION_LOCK:  # one separation (+ its streaming tone pass) at a time: stays within 512 MB
             stems = separation.separate(src, d / "stems", model)
-        if not stems:
-            raise RuntimeError("separation produced no stems")
-        return stems, {"model": model, "backend": backend, "quality": separation.QUALITY[backend]}
+            if not stems:
+                raise RuntimeError("separation produced no stems")
+            meta = {"model": model, "backend": backend, "quality": separation.QUALITY[backend]}
+            if prof is not None:
+                out, tmeta = {}, {}
+                for name, path in stems.items():
+                    raw = path.with_name(f"{name}_raw.wav")
+                    path.rename(raw)
+                    tmeta[name] = run_chain(raw, path, prof.for_stem(name), d / "work")
+                    out[name], out[f"{name}_raw"] = path, raw
+                stems = out
+                meta["toneProfile"] = {"mode": prof.mode, "warnings": prof.warnings, "stems": tmeta,
+                                       "unmatchedStemOverrides": sorted(set(prof.stems) - set(tmeta))}
+        return stems, meta
     bg.add_task(_run, jid, work)
     return {"job_id": jid, "status": "queued", "status_url": f"{str(request.base_url).rstrip('/')}/jobs/{jid}"}
 
@@ -166,11 +184,53 @@ def pitch_tempo_ep(request: Request, file: UploadFile = File(...), semitones: fl
                      lambda x, sr: (lambda r: (r[0], {"engine": r[1]}))(pitch_tempo(x, sr, semitones, tempo, engine)))
 
 
+def _parse_profile_field(raw: Optional[str]):
+    if raw is None or raw.strip() == "":
+        return None
+    try:
+        body = json.loads(raw)
+    except json.JSONDecodeError:
+        raise HTTPException(422, "toneProfile/profile must be JSON")
+    try:
+        return parse_profile(body)
+    except ProfileError as e:
+        raise HTTPException(422, {"errors": e.errors})
+
+
+@app.get("/tone/schema", dependencies=AUTH)
+def tone_schema():
+    """Parameter ranges/defaults/units/steps for building sliders dynamically (see schema/FREESTYLE.md)."""
+    return schema_doc()
+
+
 @app.post("/process/tone", dependencies=PROC)
 def tone_ep(request: Request, file: UploadFile = File(...), low_gain_db: float = Form(0.0),
             mid_gain_db: float = Form(0.0), high_gain_db: float = Form(0.0), low_freq: float = Form(120.0),
             mid_freq: float = Form(1000.0), high_freq: float = Form(6000.0), mid_q: float = Form(1.0),
-            drive: float = Form(0.0), mix_amount: float = Form(0.0, alias="mix")):
+            drive: float = Form(0.0), mix_amount: float = Form(0.0, alias="mix"),
+            profile: Optional[str] = Form(None), toneProfile: Optional[str] = Form(None),
+            stem: Optional[str] = Form(None)):
+    """Two bodies: legacy form fields (unchanged), or profile/toneProfile = JSON {mode, params, stems?} which runs
+    the full chain denoise -> pitchTempo -> tone. `stem` selects a stems.<name> override."""
+    prof = _parse_profile_field(profile if profile is not None else toneProfile)
+    if prof is not None:
+        if stem is not None and not SAFE.match(stem):
+            raise HTTPException(422, "bad stem name")
+        jid = jobs.create("tone", {"mode": prof.mode, "stem": stem})
+        d = jobs.job_dir(jid)
+        src = _save_upload(file, d)
+
+        def work():
+            out = d / "output.wav"
+            m = run_chain(src, out, prof.for_stem(stem), d / "work")
+            return {"output": out}, {"mode": prof.mode, "stem": stem, "stemOverrideApplied": stem in prof.stems,
+                                     "warnings": prof.warnings, **m}
+        with TONE_SLOTS:
+            _run(jid, work)
+        j = jobs.get(jid)
+        if j["status"] == "error":
+            raise HTTPException(422, j["error"])
+        return _job_view(j, request)
     for g in (low_gain_db, mid_gain_db, high_gain_db):
         if abs(g) > 24:
             raise HTTPException(422, "gains must be within ±24 dB")
